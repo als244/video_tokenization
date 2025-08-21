@@ -14,12 +14,15 @@ from cosmos_tokenizer.video_lib import CausalVideoTokenizer
 
 # --- Configuration ---
 
-def do_visual_tokenizer(input_mp4_filepath, tokenizer_temporal_window_size, temporal_compression, spatial_compression, output_tokens_filepath):
+def do_visual_tokenizer(input_mp4_filepath, tokenizer_temporal_window_size, is_discrete, temporal_compression, spatial_compression, output_tokens_filepath):
 
     TEMPORAL_COMP = temporal_compression
     SPATIAL_COMP = spatial_compression
 
-    model_name = f"Cosmos-Tokenizer-DV{TEMPORAL_COMP}x{SPATIAL_COMP}x{SPATIAL_COMP}"
+    if is_discrete:
+        model_name = f"Cosmos-Tokenizer-DV{TEMPORAL_COMP}x{SPATIAL_COMP}x{SPATIAL_COMP}"
+    else:
+        model_name = f"Cosmos-Tokenizer-CV{TEMPORAL_COMP}x{SPATIAL_COMP}x{SPATIAL_COMP}"
 
     ckpt_dir = "pretrained_ckpts"
     encoder_ckpt = os.path.join(ckpt_dir, model_name, "encoder.jit")
@@ -160,11 +163,13 @@ def do_visual_tokenizer(input_mp4_filepath, tokenizer_temporal_window_size, temp
 
         try:
             with torch.no_grad():
-                indices_chunk, codes_chunk = tokenizer.encode(input_chunk_tensor)
-                indices_chunk = indices_chunk[:, :, :, :]
-                all_token_indices.append(indices_chunk.cpu())
-                del indices_chunk
-                del codes_chunk
+                encoding = tokenizer.encode(input_chunk_tensor)
+                encoded_chunk = encoding[0]
+                all_token_indices.append(encoded_chunk.cpu())
+                del encoded_chunk
+                if is_discrete:
+                    codes = encoding[1]
+                    del codes
 
         except torch.cuda.OutOfMemoryError: print(f"\nError: CUDA out of memory during tokenization of chunk {i+1}."); exit()
         except Exception as e: print(f"\nAn error occurred during tokenization of chunk {i+1}: {e}"); exit()
@@ -181,22 +186,33 @@ def do_visual_tokenizer(input_mp4_filepath, tokenizer_temporal_window_size, temp
     if not all_token_indices: print("Error: No tokens were generated."); exit()
     print("Concatenating tokens from all chunks...")
     try:
-        final_tokens_tensor = torch.cat(all_token_indices, dim=1) # Assuming dim=1 is correct
+        ## combine along the latent frame dimension
+        if is_discrete:
+            # creates tensor of shape: [1, # latent frames, latent height, latent width]
+            final_tokens_tensor = torch.cat(all_token_indices, dim=1)
+        else:
+            # creates tensor of shape: [1, 16, # latent frames, # latent height, # latent width]
+            # 16 is the number of channels created by cosmos tokenizer
+            final_tokens_tensor = torch.cat(all_token_indices, dim=2)
+            # reshape to [1, # latent frames, # latent height, # latent width, 16]
+            final_tokens_tensor = final_tokens_tensor.permute(0, 2, 3, 4, 1)
         print(f"Final concatenated tokens tensor shape: {final_tokens_tensor.shape}")
     except Exception as e: print(f"Error concatenating token chunks: {e}"); exit()
 
-    tokens_np = final_tokens_tensor.numpy()
+    tokens_np = final_tokens_tensor.float().numpy()
 
     return tokens_np
 
 
-def do_visual_detokenizer(input_tokens_filepath, original_fps, original_width, original_height, tokenizer_temporal_chunk_size, temporal_compression, spatial_compression, output_mp4_filepath):
+def do_visual_detokenizer(input_tokens_filepath, original_fps, original_width, original_height, tokenizer_temporal_window_size, is_discrete, temporal_compression, spatial_compression, output_mp4_filepath):
 
     TEMPORAL_COMP = temporal_compression
     SPATIAL_COMP = spatial_compression
 
-
-    model_name = f"Cosmos-Tokenizer-DV{TEMPORAL_COMP}x{SPATIAL_COMP}x{SPATIAL_COMP}"
+    if is_discrete:
+        model_name = f"Cosmos-Tokenizer-DV{TEMPORAL_COMP}x{SPATIAL_COMP}x{SPATIAL_COMP}"
+    else:
+        model_name = f"Cosmos-Tokenizer-CV{TEMPORAL_COMP}x{SPATIAL_COMP}x{SPATIAL_COMP}"
 
     decoder_device = "cuda" if torch.cuda.is_available() else "cpu"
     decoder_dtype = torch.bfloat16 if decoder_device == "cuda" and torch.cuda.is_bf16_supported() else torch.float32
@@ -229,7 +245,7 @@ def do_visual_detokenizer(input_tokens_filepath, original_fps, original_width, o
         tokens_np = np.load(input_tokens_filepath)
         final_tokens_tensor = torch.from_numpy(tokens_np) # Keep on CPU for now
         print(f"Loaded tokens tensor shape: {final_tokens_tensor.shape}")
-        if final_tokens_tensor.dim() != 4 or final_tokens_tensor.shape[0] != 1:
+        if (is_discrete and final_tokens_tensor.dim() != 4) or (not is_discrete and final_tokens_tensor.dim() != 5) or final_tokens_tensor.shape[0] != 1:
             print("Error: Unexpected token tensor shape."); exit()
     except Exception as e: print(f"Error loading tokens: {e}"); exit()
 
@@ -248,18 +264,24 @@ def do_visual_detokenizer(input_tokens_filepath, original_fps, original_width, o
 
     cur_orig_frame = 0
 
+    if not is_discrete:
+        ## we saved as [1, # latent frames, # latent height, # latent width, 16] in float
+        ## but de-tokenizer expects [1, 16, # latent frames, # latent height, # latent width] in bfloat16
+        final_tokens_tensor = final_tokens_tensor.permute(0, 4, 1, 2, 3).bfloat16()
+
     try:
         for i in range(total_latent_chunks):
            
             latent_start_frame = i * latent_frames_per_chunk
             latent_end_frame = min((i + 1) * latent_frames_per_chunk, total_latent_frames)
 
-           
-
-            indices_chunk = final_tokens_tensor[:, latent_start_frame:latent_end_frame, :, :].to(decoder_device)
+            if is_discrete:
+                encoded_chunk = final_tokens_tensor[:, latent_start_frame:latent_end_frame, :, :].to(decoder_device)
+            else:
+                encoded_chunk = final_tokens_tensor[:, :, latent_start_frame:latent_end_frame, :, :].to(decoder_device)
 
             with torch.no_grad():
-                reconstructed_chunk = decoder.decode(indices_chunk) # (B, C, T_vid_chunk, H, W)
+                reconstructed_chunk = decoder.decode(encoded_chunk)
 
             reconstructed_video_chunk = reconstructed_chunk.squeeze(0) # (C, T_vid_chunk, H, W)
             num_frames_in_chunk = reconstructed_video_chunk.shape[1]
@@ -295,7 +317,7 @@ def do_visual_detokenizer(input_tokens_filepath, original_fps, original_width, o
             
             cur_orig_frame += num_frames_in_chunk
 
-            del indices_chunk
+            del encoded_chunk
             del reconstructed_chunk
             del reconstructed_video_chunk
 
@@ -344,28 +366,34 @@ def get_video_properties(input_mp4_filepath):
 
 if __name__ == "__main__":
 
-    if len(sys.argv) != 5 and len(sys.argv) != 6:
-        print("Error. Usage: visual_tokenizer.py <input_mp4_filepath> <temporal_compression_factor: [4|8]> <spatial_compression_factor: [8|16]> <output_tokens_filepath> [reconstruct_video_output_mp4_filepath]")
+    if len(sys.argv) != 6 and len(sys.argv) != 7:
+        print("Error. Usage: visual_tokenizer.py <input_mp4_filepath> <is_discrete: [0|1]> <temporal_compression_factor: [4|8]> <spatial_compression_factor: [8|16]> <output_tokens_filepath> [reconstruct_video_output_mp4_filepath]")
         sys.exit(1)
 
     input_mp4_filepath = sys.argv[1]
 
-    temporal_compression = int(sys.argv[2])
+    is_discrete = int(sys.argv[2])
+
+    if (is_discrete != 0) and (is_discrete != 1):
+        print(f"Error: is_discrete must be set to 0 or 1, {is_discrete} is not supported...")
+        sys.exit(1)
+
+    temporal_compression = int(sys.argv[3])
 
     if (temporal_compression != 4) and (temporal_compression != 8):
         print(f"Error: temporal compression must be set to 4 or 8, {temporal_compression} is not supported...")
         sys.exit(1)
 
-    spatial_compression = int(sys.argv[3])
+    spatial_compression = int(sys.argv[4])
 
     if (spatial_compression != 8) and (spatial_compression != 16):
         print(f"Error: spatial compression must be set to 8 or 16, {spatial_compression} is not supported...")
         sys.exit(1)
 
-    output_tokens_filepath = sys.argv[4]
+    output_tokens_filepath = sys.argv[5]
 
-    if len(sys.argv) == 6:
-        output_mp4_filepath = sys.argv[5]
+    if len(sys.argv) == 7:
+        output_mp4_filepath = sys.argv[6]
     else:
         output_mp4_filepath = None
 
@@ -376,7 +404,7 @@ if __name__ == "__main__":
     tokenizer_temporal_window_size = 129
 
     print(f"Tokenizing video: {input_mp4_filepath}...")
-    tokens_np = do_visual_tokenizer(input_mp4_filepath, tokenizer_temporal_window_size, temporal_compression, spatial_compression, output_tokens_filepath)
+    tokens_np = do_visual_tokenizer(input_mp4_filepath, tokenizer_temporal_window_size, is_discrete, temporal_compression, spatial_compression, output_tokens_filepath)
     print(f"\tVisual tokens shape: {tokens_np.shape}\n\n")
 
     print(f"Saving tokens to: {output_tokens_filepath}...\n\n")
@@ -385,5 +413,5 @@ if __name__ == "__main__":
     if output_mp4_filepath is not None:
         print(f"Reconstructing video from tokens and saving to: {output_mp4_filepath}...\n\n")
         original_fps, original_width, original_height = get_video_properties(input_mp4_filepath)
-        do_visual_detokenizer(output_tokens_filepath + ".npy", original_fps, original_width, original_height, tokenizer_temporal_window_size, temporal_compression, spatial_compression, output_mp4_filepath)
+        do_visual_detokenizer(output_tokens_filepath + ".npy", original_fps, original_width, original_height, tokenizer_temporal_window_size, is_discrete, temporal_compression, spatial_compression, output_mp4_filepath)
         print(f"\nFinished. Reconstructed video saved to: {output_mp4_filepath}\n")

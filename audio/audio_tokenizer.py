@@ -151,11 +151,11 @@ def do_audio_tokenizer(INPUT_WAVE_FILE, ORIG_MP4_PATH, VISUAL_TOKENS_PATH, VISUA
         print("Error: No audio codes were generated. Aborting.", file=sys.stderr)
         return
         
-    combined_tokens = torch.stack(encoded_audio_codes, dim=1)
+    audio_tokens = torch.stack(encoded_audio_codes, dim=1)
 
-    combined_tokens_np = combined_tokens.cpu().numpy()
-    np.save(AUDIO_TOKENIZED_PATH, combined_tokens_np)
-    print(f"Full audio tokens shape: {combined_tokens.shape}")
+    audio_tokens_np = audio_tokens.cpu().numpy()
+    np.save(AUDIO_TOKENIZED_PATH, audio_tokens_np)
+    print(f"Full audio tokens shape: {audio_tokens.shape}")
     print(f"Successfully saved audio tokens at: {AUDIO_TOKENIZED_PATH}!\n")
 
 
@@ -177,8 +177,8 @@ def do_audio_detokenizer(
     print(f"Model loaded on device: {device}")
 
     try:
-        combined_tokens_np = np.load(AUDIO_TOKENIZED_PATH)
-        combined_tokens = torch.from_numpy(combined_tokens_np).to(device)
+        audio_tokens_np = np.load(AUDIO_TOKENIZED_PATH)
+        audio_tokens = torch.from_numpy(audio_tokens_np).to(device)
     except Exception as e:
         print(f"Error loading token file '{AUDIO_TOKENIZED_PATH}': {e}", file=sys.stderr)
         return
@@ -194,11 +194,11 @@ def do_audio_detokenizer(
 
     print("Decoding tokens back to audio...")
     decoded_audio_chunks = []
-    num_latent_frames = combined_tokens.shape[1]
+    num_latent_frames = audio_tokens.shape[1]
 
     with torch.no_grad():
         for i in range(num_latent_frames):
-            codes = combined_tokens[:, i, :, :]
+            codes = audio_tokens[:, i, :, :]
             z = model.quantizer.from_codes(codes)[0]
             decoded_chunk = model.decode(z)
             
