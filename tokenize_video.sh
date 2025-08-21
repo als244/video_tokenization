@@ -5,8 +5,8 @@ set -e
 
 # --- Script Arguments ---
 # We'll check if all required arguments are provided.
-if [ "$#" -ne 7 ]; then
-    echo "Usage: $0 <orig_video_dir> <orig_video_file> <video_nickname> <temporal_factor> <spatial_factor> <output_tokens_dir> <reconstructed_dir>"
+if [ "$#" -ne 8 ]; then
+    echo "Usage: $0 <orig_video_dir> <orig_video_file> <video_nickname> <is_discrete> <temporal_factor> <spatial_factor> <output_tokens_dir> <reconstructed_dir>"
     exit 1
 fi
 
@@ -14,12 +14,14 @@ ORIG_VIDEO_DIR=$1
 ORIG_VIDEO_FILE=$2
 ORIG_VIDEO_FILEPATH="${ORIG_VIDEO_DIR}/${ORIG_VIDEO_FILE}"
 VIDEO_NICKNAME=$3
+# either 0 or 1
+IS_DISCRETE=$4
 # either 4 or 8
-TEMPORAL_COMPRESSION_FACTOR=$4
+TEMPORAL_COMPRESSION_FACTOR=$5
 # either 8 or 16
-SPATIAL_COMPRESSION_FACTOR=$5
-OUTPUT_TOKENS_DIR=$6
-RECONSTRUCTED_DIR=$7
+SPATIAL_COMPRESSION_FACTOR=$6
+OUTPUT_TOKENS_DIR=$7
+RECONSTRUCTED_DIR=$8
 
 # --- Main Processing Steps ---
 
@@ -30,6 +32,7 @@ echo "--- [Step 1/3] Starting Visual Tokenization for '${VIDEO_NICKNAME}'... ---
 # Run this command inside the 'visual' directory, using 'python3'
 (cd visual && python3 visual_tokenizer.py \
     "../${ORIG_VIDEO_FILEPATH}" \
+    "${IS_DISCRETE}" \
     "${TEMPORAL_COMPRESSION_FACTOR}" \
     "${SPATIAL_COMPRESSION_FACTOR}" \
     "../${OUTPUT_TOKENS_DIR}/${VIDEO_NICKNAME}_visual" \
