@@ -9,7 +9,7 @@ Convert `.mp4` to latent audio & visual frames.
             - Only recommended for 4x8x8, but continuous is preferred regardless
         - Continous tokenizer produces latent frames with 16 channels of bfloat16
             - Instead of each token being 2-bytes (a 16-bit identifier), it is 32-bytes. If an up projection to model dimension is initially performed then the only downside is larger storage requirements for training dataset (assuming tokenization is a pre-processing step).
-            - Thus for a given compression ratio (i.e. total \# of tokens produced) the reconstruction quality of continous tokenizer is significantly better as it uses 16x more information to encode/decode.
+            - Thus for a given compression ratio (i.e. total \# of tokens produced) the reconstruction quality of continous tokenizer is significantly better as it uses 16x more information to encode/decode. Hence for a given reconstruction quality, continuous tokenization will let us use higher compression factors & less total tokens.
 
 - Audio Tokenizer: [DAC](https://github.com/descriptinc/descript-audio-codec) (VQ-GAN)
     - Handles 44.1Khz audio waves and produces discrete 10-bit codes
