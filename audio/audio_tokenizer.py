@@ -32,29 +32,27 @@ def extract_audio_ffmpeg_python(mp4_filepath, wav_filepath):
     except Exception as e:
         print(f"An unexpected error occurred during audio extraction: {e}", file=sys.stderr)
 
-def do_audio_tokenizer(INPUT_WAVE_FILE, ORIG_MP4_PATH, VISUAL_TOKENS_PATH, VISUAL_TEMPORAL_COMPRESSION, AUDIO_TOKENIZED_PATH):
+def do_audio_tokenizer(INPUT_WAVE_FILE, VISUAL_TOKENS_PATH, AUDIO_TOKENIZED_PATH):
     """
     Tokenizes an audio file into discrete codes synchronized with visual latent frames.
 
     Args:
         INPUT_WAVE_FILE (str): Path to the input WAV audio file.
-        ORIG_MP4_PATH (str): Path to the original MP4 video file to get metadata.
         VISUAL_TOKENS_PATH (str): Path to the numpy file containing visual tokens.
-        VISUAL_TEMPORAL_COMPRESSION (int): The temporal compression factor of the visual tokenizer.
         AUDIO_TOKENIZED_PATH (str): Path to save the output audio tokens.
     """
+
     print("--- Starting Audio Tokenization ---")
     # --- 1. Setup Model ---
     print("Loading DAC model...")
     model_path = dac.utils.download(model_type="44khz")
     model = dac.DAC.load(model_path)
     model.eval()
-
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
     print(f"Model loaded on device: {device}")
 
-    # --- 2. Load Audio and Video Metadata ---
+    # --- 2. Load Audio and Visual Data ---
     try:
         original_signal = AudioSignal(INPUT_WAVE_FILE)
         visual_tokens = np.load(VISUAL_TOKENS_PATH)
@@ -64,49 +62,46 @@ def do_audio_tokenizer(INPUT_WAVE_FILE, ORIG_MP4_PATH, VISUAL_TOKENS_PATH, VISUA
 
     print(f"Loaded signal: Duration={original_signal.duration:.2f}s, Sample Rate={original_signal.sample_rate}Hz")
 
-    # --- 3. Calculate Audio Chunk Size based on Visual Frames ---
-    cap = cv2.VideoCapture(ORIG_MP4_PATH)
-    if not cap.isOpened():
-        print(f"Error: Could not open video file: {ORIG_MP4_PATH}", file=sys.stderr)
+    # --- 3. Calculate Audio Chunk Size using Proportional Slicing ---
+    total_audio_samples = original_signal.audio_data.shape[-1]
+    num_visual_latent_frames = visual_tokens.shape[1]
+
+    if num_visual_latent_frames == 0:
+        print("Error: No visual latent frames found. Cannot process audio.", file=sys.stderr)
         return
-    orig_fps = cap.get(cv2.CAP_PROP_FPS)
-    cap.release()
 
-    visual_latent_frames = visual_tokens.shape[1]
-
-    # Use the same "ideal" calculation as the detokenizer.
-    # This ensures the chunking process is symmetrical.
-    audio_sample_rate = original_signal.sample_rate
-    duration_per_latent = VISUAL_TEMPORAL_COMPRESSION / orig_fps
-    samples_per_chunk = round(duration_per_latent * audio_sample_rate)
-
-    print(f"Original video FPS: {orig_fps:.2f}")
-    print(f"Number of visual latent frames: {visual_latent_frames}")
-    print(f"Audio samples per latent frame (calculated): {samples_per_chunk}")
+    # Calculate the average number of audio samples per visual latent frame as a float.
+    # This is the key to avoiding cumulative rounding errors.
+    avg_samples_per_latent = total_audio_samples / num_visual_latent_frames
+    
+    print(f"Number of visual latent frames: {num_visual_latent_frames}")
+    print(f"Total audio samples: {total_audio_samples}")
+    print(f"Average audio samples per latent frame (float): {avg_samples_per_latent:.2f}")
 
     # --- 4. Chunk and Preprocess Audio ---
     print("Chunking and preprocessing audio...")
     original_audio_chunks = []
-    for i in range(visual_latent_frames):
-        # Use the precise integer calculation to avoid floating point drift
-        start_sample = i * samples_per_chunk
-        end_sample = start_sample + samples_per_chunk
+    
+    for i in range(num_visual_latent_frames):
+        # Calculate precise start and end samples for this chunk by multiplying the index
+        # by the float average, then rounding. This distributes error evenly.
+        start_sample = round(i * avg_samples_per_latent)
+        end_sample = round((i + 1) * avg_samples_per_latent)
+        
+        # Ensure we don't exceed the audio bounds with the final chunk
+        end_sample = min(end_sample, total_audio_samples)
+
         audio_chunk_data = original_signal.audio_data[:, :, start_sample:end_sample]
         
-        # Ensure the chunk is not empty and handles the end of the audio file
-        current_len = audio_chunk_data.shape[2]
-        if current_len > 0:
-            
-            if current_len < samples_per_chunk:
-                padding_needed = samples_per_chunk - current_len
-                # Pad on the right side (end of the time dimension)
-                audio_chunk_data = torch.nn.functional.pad(audio_chunk_data, (0, padding_needed))
-
+        # We no longer need to pad, as the slicing logic handles the exact length.
+        # The DAC model's internal preprocessing will handle any necessary padding.
+        if audio_chunk_data.shape[2] > 0:
             chunk_signal = AudioSignal(audio_chunk_data, sample_rate=original_signal.sample_rate)
             original_audio_chunks.append(chunk_signal)
 
-    print(f"Created {len(original_audio_chunks)} audio chunks.")
+    print(f"Created {len(original_audio_chunks)} audio chunks, perfectly aligned with visual frames.")
 
+    # --- 5. Preprocess Chunks for DAC Model ---
     # The DAC model expects a specific sample rate (44.1kHz) and mono audio.
     target_sample_rate = 44100
     preprocessed_audio_chunks = []
@@ -127,32 +122,27 @@ def do_audio_tokenizer(INPUT_WAVE_FILE, ORIG_MP4_PATH, VISUAL_TOKENS_PATH, VISUA
         else:
             processed_signal = chunk.to(device)
             
-        # Preprocess for the model (e.g., padding)
+        # The model's preprocess step adds the necessary padding to a fixed size
         preprocessed_chunk = model.preprocess(processed_signal.audio_data, processed_signal.sample_rate)
         preprocessed_audio_chunks.append(preprocessed_chunk)
 
-    # --- 5. Encode Chunks into Tokens ---
+    # --- 6. Encode Chunks into Tokens ---
     print("Encoding audio chunks to tokens...")
     encoded_audio_codes = []
     with torch.no_grad():
         for i, chunk in enumerate(preprocessed_audio_chunks):
             cur_clip = chunk.to(model.device)
-            # Encode returns: z (quantized), codes, latents (pre-quantization), ...
             _, codes, _, _, _ = model.encode(cur_clip)
             encoded_audio_codes.append(codes.detach().cpu())
             if (i + 1) % 100 == 0 or i == len(preprocessed_audio_chunks) - 1:
                 print(f"  > Encoded chunk {i+1}/{len(preprocessed_audio_chunks)}")
 
-    # --- 6. Combine and Save Tokens ---
-    # Stack the list of code tensors into a single tensor.
-    # The new dimension represents the sequence of latent frames.
-    # Shape becomes: (batch, seq_len, n_quantizers, n_tokens_per_chunk)
+    # --- 7. Combine and Save Tokens ---
     if not encoded_audio_codes:
         print("Error: No audio codes were generated. Aborting.", file=sys.stderr)
         return
         
     audio_tokens = torch.stack(encoded_audio_codes, dim=1)
-
     audio_tokens_np = audio_tokens.cpu().numpy()
     np.save(AUDIO_TOKENIZED_PATH, audio_tokens_np)
     print(f"Full audio tokens shape: {audio_tokens.shape}")
@@ -267,9 +257,7 @@ if __name__ == "__main__":
     print(f"\n\nTokenizing audio from: {AUDIO_WAV_PATH}...\n")
     do_audio_tokenizer(
         INPUT_WAVE_FILE=AUDIO_WAV_PATH,
-        ORIG_MP4_PATH=ORIG_MP4_PATH,
         VISUAL_TOKENS_PATH=VISUAL_TOKENS_PATH,
-        VISUAL_TEMPORAL_COMPRESSION=VISUAL_TEMPORAL_COMPRESSION,
         AUDIO_TOKENIZED_PATH=AUDIO_TOKENIZED_PATH
     )
 
