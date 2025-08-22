@@ -32,7 +32,9 @@ You can use this tool to easily create training data and do eye-tests of reconst
 To produce audio & visual tokens run the following script:
 
 ```shell
-./tokenize_video <orig_video_dir> <orig_video_file> <video_nickname> <is_discrete> <temporal_factor> <spatial_factor> <output_tokens_dir> <reconstructed_dir>
+./tokenize_video <orig_video_dir> <orig_video_file> <video_nickname> \
+                 <is_discrete> <temporal_factor> <spatial_factor> \
+                 <output_tokens_dir> <reconstructed_dir>
 ```
 
 Arguments:
