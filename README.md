@@ -20,9 +20,9 @@ Convert `.mp4` to latent audio & visual frames.
 
 ###### Using the 8x16x16 continuous visual tokenizer. Lower compression factors (more tokens) should be used for high-action videos to retain fidelity.
 
-- 22 min 18 sec; 640x480 => ~ 5 million
-- 8 min 51 sec; 960x720 => ~ 4.5 million
-- 38 min, 1 sec; 1280x720 => 
+- 22 min 18 sec; fps 30; 640x480 => ~ 5 million
+- 8 min 51 sec; fps 30; 960x720 => ~ 4.5 million
+- 38 min, 1 sec; fps 30; 1280x720 => 
 
 
 ## Usage
