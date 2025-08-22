@@ -70,36 +70,46 @@ def do_audio_tokenizer(INPUT_WAVE_FILE, VISUAL_TOKENS_PATH, AUDIO_TOKENIZED_PATH
         print("Error: No visual latent frames found. Cannot process audio.", file=sys.stderr)
         return
 
-    # Calculate the average number of audio samples per visual latent frame as a float.
-    # This is the key to avoiding cumulative rounding errors.
     avg_samples_per_latent = total_audio_samples / num_visual_latent_frames
     
+    # Define a single, fixed target length for all chunks.
+    target_samples_per_chunk = round(avg_samples_per_latent)
+
     print(f"Number of visual latent frames: {num_visual_latent_frames}")
-    print(f"Total audio samples: {total_audio_samples}")
-    print(f"Average audio samples per latent frame (float): {avg_samples_per_latent:.2f}")
+    print(f"Average audio samples per latent frame: {avg_samples_per_latent:.2f}")
+    print(f"All audio chunks will be resampled to a fixed length of {target_samples_per_chunk} samples.")
 
     # --- 4. Chunk and Preprocess Audio ---
     print("Chunking and preprocessing audio...")
     original_audio_chunks = []
     
     for i in range(num_visual_latent_frames):
-        # Calculate precise start and end samples for this chunk by multiplying the index
-        # by the float average, then rounding. This distributes error evenly.
+        # Step A: Slice the audio proportionally to get a variable-length chunk.
         start_sample = round(i * avg_samples_per_latent)
         end_sample = round((i + 1) * avg_samples_per_latent)
-        
-        # Ensure we don't exceed the audio bounds with the final chunk
         end_sample = min(end_sample, total_audio_samples)
 
         audio_chunk_data = original_signal.audio_data[:, :, start_sample:end_sample]
+        current_len = audio_chunk_data.shape[2]
         
-        # We no longer need to pad, as the slicing logic handles the exact length.
-        # The DAC model's internal preprocessing will handle any necessary padding.
-        if audio_chunk_data.shape[2] > 0:
-            chunk_signal = AudioSignal(audio_chunk_data, sample_rate=original_signal.sample_rate)
+        if current_len > 0:
+            # Resample the variable-length chunk to the fixed target length.
+            if current_len != target_samples_per_chunk:
+                # Use resampling to time-stretch or compress the audio chunk.
+                # This ensures every chunk has the exact same length before encoding.
+                resampled_chunk_data = F.resample(
+                    audio_chunk_data,
+                    orig_freq=current_len,
+                    new_freq=target_samples_per_chunk
+                )
+            else:
+                # No resampling needed if it's already the target length
+                resampled_chunk_data = audio_chunk_data
+
+            chunk_signal = AudioSignal(resampled_chunk_data, sample_rate=original_signal.sample_rate)
             original_audio_chunks.append(chunk_signal)
 
-    print(f"Created {len(original_audio_chunks)} audio chunks, perfectly aligned with visual frames.")
+    print(f"Created and resampled {len(original_audio_chunks)} audio chunks to a fixed size.")
 
     # --- 5. Preprocess Chunks for DAC Model ---
     # The DAC model expects a specific sample rate (44.1kHz) and mono audio.
