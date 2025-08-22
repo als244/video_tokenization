@@ -2,17 +2,27 @@
 
 Convert `.mp4` to latent audio & visual frames. 
 
-- Visual Tokenizer: [Cosmos](https://github.com/NVIDIA/Cosmos-Tokenizer) (causal VAE)
+- Visual Tokenizer: [Cosmos](https://github.com/NVIDIA/Cosmos-Tokenizer) (causal autoencoder)
     - 4x8x8, 8x8x8, or 8x16x16 compression (temporal x spatial x spatial)
     - Discete or Continuous
-        - Discrete tokenizer produces latent frames with `uint16_t` token identifiers $[0, 65536)$
-            - Only recommended for 4x8x8, but continuous is preferred
+        - Discrete tokenizer produces latent frames with `uint16_t` token identifiers: $[0, 65536)$
+            - Only recommended for 4x8x8, but continuous is preferred regardless
         - Continous tokenizer produces latent frames with 16 channels of bfloat16
-            - Thus reconstruction quality of continous tokenizer is thus significantly better as it uses 16x more bytes for a given compression ratio
+            - Instead of each token being 2-bytes (a 16-bit identifier), it is 32-bytes. If an up projection to model dimension is initially performed then the only downside is larger storage requirements for training dataset (assuming tokenization is a pre-processing step).
+            - Thus for a given compression ratio (i.e. total \# of tokens produced) the reconstruction quality of continous tokenizer is significantly better as it uses 16x more information to encode/decode.
 
 - Audio Tokenizer: [DAC](https://github.com/descriptinc/descript-audio-codec) (VQ-GAN)
     - Handles 44.1Khz audio waves and produces discrete 10-bit codes
-        - Audio contains significantly less information than visual percept; even for low visual resolution (480p) < 5% of tokens are audio
+        - Audio contains significantly less information than visual percept
+            - Even for low visual resolution (480p) < 5% of tokens are audio
+
+#### Example Sequence Lengths
+
+###### Using the 8x16x16 continuous visual tokenizer. Lower compression factors (more tokens) should be used for high-action videos to retain fidelity.
+
+- 22 min 18 sec; 640x480 => ~ 5 million
+- 8 min 51 sec; 960x720 => ~ 4.5 million
+- 38 min, 1 sec; 1280x720 => 
 
 
 ## Usage
