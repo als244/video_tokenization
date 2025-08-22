@@ -5,7 +5,7 @@ Convert `.mp4` to latent audio & visual frames.
 - Visual Tokenizer: [Cosmos](https://github.com/NVIDIA/Cosmos-Tokenizer) (causal VAE)
     - 4x8x8, 8x8x8, or 8x16x16 compression (temporal x spatial x spatial)
     - Discete or Continuous
-        - Discrete tokenizer produces latent frames with 16-bit token identifiers
+        - Discrete tokenizer produces latent frames with `uint16_t` token identifiers $[0, 65536)$
             - Only recommended for 4x8x8, but continuous is preferred
         - Continous tokenizer produces latent frames with 16 channels of bfloat16
             - Thus reconstruction quality of continous tokenizer is thus significantly better as it uses 16x more bytes for a given compression ratio
