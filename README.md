@@ -17,12 +17,16 @@ Convert `.mp4` to latent audio & visual frames.
 
 #### Example Sequence Lengths
 
-###### Using the 8x16x16 continuous visual tokenizer. Lower compression factors (more tokens) should be used for high-action videos to retain fidelity. You can experiment with different compression factors using the script below; the reconstructed videos can be thought of as the machine's input. Garbage in => Garbage out!
+Some TV Episodes:
 
-- 22 min 18 sec; fps 30; 480x640 => 5,285 latent frames of 30x40 visual + 9x22 audio => 6,342,000 visual tokens & 1,046,430 audio tokens; 
-- 8 min 51 sec; fps 30; 960x720 => ~ 4.5 million
-- 38 min, 1 sec; fps 30; 1280x720 => 
+- *Tom and Jerry*: 8 min 51 sec; 25 fps; 960x720 => 1,750 latent frames of 60x45 visual + 27x9 audio
+    - 4,725,000 visual tokens & 425,250 audio tokens =  **5.15 million tokens**
+- *It's Always Sunny in Philadelphia*: 22 min 18 sec; 30 fps; 640x480 => 5,285 latent frames of 40x30 visual + 22x9 audio
+    - 6,342,000 visual tokens & 1,046,430 audio tokens = **7.39 million tokens**
+- *The Price is Right*: 38 min, 1 sec; 30 fps; 1280x720 => 9,010 latent frames of 80x45 visual + 22x9 audio
+    - 32,436,000 visual tokens & 1,783,980 audio tokens = **34.22 million tokens**
 
+###### These are product of the 8x16x16 continuous visual tokenizer. Lower compression factors (more tokens) are needed for high-action videos to retain fidelity. You can experiment with different compression factors using the script in next section --- the reconstructed videos can be thought of as the machine's input (recall: garbage in => garbage out)!
 
 ## Usage
 
@@ -46,6 +50,8 @@ Arguments:
 - `spatial_factor`: 8 or 16. Determines the spatial (for both height & width) compression rate. 
 - `output_tokens_dir`: path to directory in which the tokens will be saved (e.g. `example_tokens`)
 - `reconstructed_dir`: path to direcotry in which the reconstructed files (visual, audio, & combined) will be saved (e.g. `example_videos/reconstructed`)
+
+###### Note: this is meant for testing reconstruction quality / tokenization for small experiments (not large scale preprocessing, where quadrillions of tokens might be encoded).
 
 #### Description
 
