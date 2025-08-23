@@ -84,6 +84,8 @@ def do_audio_tokenizer(INPUT_WAVE_FILE, VISUAL_TOKENS_PATH, AUDIO_TOKENIZED_PATH
     original_audio_chunks = []
     
     for i in range(num_visual_latent_frames):
+        
+        
         # Step A: Slice the audio proportionally to get a variable-length chunk.
         start_sample = round(i * avg_samples_per_latent)
         end_sample = round((i + 1) * avg_samples_per_latent)
@@ -108,6 +110,9 @@ def do_audio_tokenizer(INPUT_WAVE_FILE, VISUAL_TOKENS_PATH, AUDIO_TOKENIZED_PATH
 
             chunk_signal = AudioSignal(resampled_chunk_data, sample_rate=original_signal.sample_rate)
             original_audio_chunks.append(chunk_signal)
+        
+        if (i + 1) % 100 == 0 or i == num_visual_latent_frames - 1:
+            print(f"   > Preprocessed audio corresponding to latent frame {i+1}/{num_visual_latent_frames}", end="\r")
 
     print(f"Created and resampled {len(original_audio_chunks)} audio chunks to a fixed size.")
 
@@ -145,7 +150,7 @@ def do_audio_tokenizer(INPUT_WAVE_FILE, VISUAL_TOKENS_PATH, AUDIO_TOKENIZED_PATH
             _, codes, _, _, _ = model.encode(cur_clip)
             encoded_audio_codes.append(codes.detach().cpu())
             if (i + 1) % 100 == 0 or i == len(preprocessed_audio_chunks) - 1:
-                print(f"  > Encoded chunk {i+1}/{len(preprocessed_audio_chunks)}")
+                print(f"  > Encoded chunk {i+1}/{len(preprocessed_audio_chunks)}", end="\r")
 
     # --- 7. Combine and Save Tokens ---
     if not encoded_audio_codes:
@@ -158,12 +163,13 @@ def do_audio_tokenizer(INPUT_WAVE_FILE, VISUAL_TOKENS_PATH, AUDIO_TOKENIZED_PATH
     print(f"Full audio tokens shape: {audio_tokens.shape}")
     print(f"Successfully saved audio tokens at: {AUDIO_TOKENIZED_PATH}!\n")
 
+    return target_samples_per_chunk
+
 
 def do_audio_detokenizer(
     AUDIO_TOKENIZED_PATH: str, 
     AUDIO_RECONSTRUCT_PATH: str, 
-    VISUAL_TEMPORAL_COMPRESSION: int,
-    TARGET_FPS: float,
+    target_samples_per_chunk: int
 ):
     """
     Reconstructs an audio waveform from tokens based on a target FPS.
@@ -183,13 +189,7 @@ def do_audio_detokenizer(
         print(f"Error loading token file '{AUDIO_TOKENIZED_PATH}': {e}", file=sys.stderr)
         return
 
-    # Calculate target length based on FPS, not original files
-    # This is the core of the generative-friendly approach.
-    output_sample_rate = model.sample_rate  # 44100
-    duration_per_latent = VISUAL_TEMPORAL_COMPRESSION / TARGET_FPS
-    target_samples_per_chunk = round(duration_per_latent * output_sample_rate)
-    
-    print(f"Target FPS: {TARGET_FPS}, Compression: {VISUAL_TEMPORAL_COMPRESSION}x")
+
     print(f"Each decoded chunk will be resampled to {target_samples_per_chunk} samples.")
 
     print("Decoding tokens back to audio...")
@@ -206,25 +206,33 @@ def do_audio_detokenizer(
             current_len = decoded_chunk.shape[-1]
             if current_len == 0: continue
 
-            # Use resampling to time-stretch/compress the chunk to the correct length
-            resampled_chunk = F.resample(
-                decoded_chunk,
-                orig_freq=current_len,
-                new_freq=target_samples_per_chunk
-            )
+            if current_len != target_samples_per_chunk:
+                # Use resampling to time-stretch/compress the chunk to the correct length
+                resampled_chunk = F.resample(
+                    decoded_chunk,
+                    orig_freq=current_len,
+                    new_freq=target_samples_per_chunk
+                )
             decoded_audio_chunks.append(resampled_chunk.cpu())
             if (i + 1) % 100 == 0 or i == num_latent_frames - 1:
-                print(f"  > Decoded chunk {i+1}/{num_latent_frames}")
+                print(f"  > Decoded chunk {i+1}/{num_latent_frames}", end="\r")
 
     if not decoded_audio_chunks:
         print("Error: No audio chunks were decoded.", file=sys.stderr)
         return
 
     reconstructed_audio_data = torch.cat(decoded_audio_chunks, dim=-1)
-    reconstructed_audio = AudioSignal(reconstructed_audio_data, sample_rate=output_sample_rate)
+
+    ### CHANGE: Remove the unnecessary batch dimension for a standard audio format.
+    # Shape changes from (1, 1, total_samples) to (1, total_samples)
+    final_audio_data = reconstructed_audio_data.squeeze(0)
+
+    reconstructed_audio = AudioSignal(final_audio_data, sample_rate=model.sample_rate)
     reconstructed_audio.write(AUDIO_RECONSTRUCT_PATH)
-    print(f"Reconstructed audio duration: {reconstructed_audio.duration:.2f}s")
+    
+    print(f"\nReconstructed audio duration: {reconstructed_audio.duration:.2f}s")
     print(f"Successfully reconstructed audio at: {AUDIO_RECONSTRUCT_PATH}\n")
+
 
 def get_video_properties(input_mp4_filepath):
     cap = cv2.VideoCapture(input_mp4_filepath)
@@ -265,7 +273,7 @@ if __name__ == "__main__":
 
     # 2. Run the tokenizer to generate discrete audio codes
     print(f"\n\nTokenizing audio from: {AUDIO_WAV_PATH}...\n")
-    do_audio_tokenizer(
+    samples_per_chunk = do_audio_tokenizer(
         INPUT_WAVE_FILE=AUDIO_WAV_PATH,
         VISUAL_TOKENS_PATH=VISUAL_TOKENS_PATH,
         AUDIO_TOKENIZED_PATH=AUDIO_TOKENIZED_PATH
@@ -279,6 +287,5 @@ if __name__ == "__main__":
         do_audio_detokenizer(
             AUDIO_TOKENIZED_PATH=AUDIO_TOKENIZED_PATH + ".npy",
             AUDIO_RECONSTRUCT_PATH=AUDIO_RECONSTRUCT_PATH,
-            VISUAL_TEMPORAL_COMPRESSION=VISUAL_TEMPORAL_COMPRESSION,
-            TARGET_FPS=original_fps
+            target_samples_per_chunk=samples_per_chunk
         )

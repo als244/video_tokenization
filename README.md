@@ -13,14 +13,13 @@ Convert `.mp4` to latent audio & visual frames.
 
 - Audio Tokenizer: [DAC](https://github.com/descriptinc/descript-audio-codec) (VQ-GAN)
     - Handles 44.1Khz audio waves and produces discrete 10-bit codes
-        - Audio contains significantly less information than visual percept
-            - Even for low visual resolution (480p) < 5% of tokens are audio
+        - Audio contains significantly less information than visual percept, where audio typically is 5-20% of the video's fraction of tokens
 
 #### Example Sequence Lengths
 
 ###### Using the 8x16x16 continuous visual tokenizer. Lower compression factors (more tokens) should be used for high-action videos to retain fidelity. You can experiment with different compression factors using the script below; the reconstructed videos can be thought of as the machine's input. Garbage in => Garbage out!
 
-- 22 min 18 sec; fps 30; 640x480 => ~ 5 million
+- 22 min 18 sec; fps 30; 480x640 => 5,285 latent frames of 30x40 visual + 9x22 audio => 6,342,000 visual tokens & 1,046,430 audio tokens; 
 - 8 min 51 sec; fps 30; 960x720 => ~ 4.5 million
 - 38 min, 1 sec; fps 30; 1280x720 => 
 

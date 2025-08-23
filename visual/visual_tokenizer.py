@@ -135,7 +135,7 @@ def do_visual_tokenizer(input_mp4_filepath, tokenizer_temporal_window_size, is_d
     if tokenizer_device == "cuda" and torch.cuda.is_bf16_supported():
         dtype_string = "bfloat16"; tokenizer_dtype = torch.bfloat16
     else:
-        dtype_string = "float32"; tokenizer_dtype = torch.float32
+        dtype_string = "bfloat16"; tokenizer_dtype = torch.bfloat16
     print(f"Using device: {tokenizer_device}, dtype: {dtype_string}")
 
     tokenizer = CausalVideoTokenizer(
@@ -199,7 +199,7 @@ def do_visual_tokenizer(input_mp4_filepath, tokenizer_temporal_window_size, is_d
         print(f"Final concatenated tokens tensor shape: {final_tokens_tensor.shape}")
     except Exception as e: print(f"Error concatenating token chunks: {e}"); exit()
 
-    tokens_np = final_tokens_tensor.float().numpy()
+    tokens_np = final_tokens_tensor.view(torch.uint16).numpy()
 
     return tokens_np
 
@@ -267,7 +267,7 @@ def do_visual_detokenizer(input_tokens_filepath, original_fps, original_width, o
     if not is_discrete:
         ## we saved as [1, # latent frames, # latent height, # latent width, 16] in float
         ## but de-tokenizer expects [1, 16, # latent frames, # latent height, # latent width] in bfloat16
-        final_tokens_tensor = final_tokens_tensor.permute(0, 4, 1, 2, 3).bfloat16()
+        final_tokens_tensor = final_tokens_tensor.permute(0, 4, 1, 2, 3).view(torch.bfloat16)
 
     try:
         for i in range(total_latent_chunks):
