@@ -254,17 +254,16 @@ def get_video_properties(input_mp4_filepath):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 5 and len(sys.argv) != 6:
-        print("Usage: python audio_tokenizer.py <orig_mp4_path> <visual_tokens_path> <visual_temporal_compression_factor> <output_tokens_path> [optional_reconstructed_audio_path]")
+    if len(sys.argv) != 4 and len(sys.argv) != 5:
+        print("Usage: python audio_tokenizer.py <orig_mp4_path> <visual_tokens_path> <output_tokens_path> [optional_reconstructed_audio_path]")
         sys.exit(1)
 
     ORIG_MP4_PATH = sys.argv[1]
     VISUAL_TOKENS_PATH = sys.argv[2]
-    VISUAL_TEMPORAL_COMPRESSION = int(sys.argv[3])
-    AUDIO_TOKENIZED_PATH = sys.argv[4]
+    AUDIO_TOKENIZED_PATH = sys.argv[3]
     
     # The path for the reconstructed audio is now optional
-    AUDIO_RECONSTRUCT_PATH = sys.argv[5] if len(sys.argv) == 6 else None
+    AUDIO_RECONSTRUCT_PATH = sys.argv[4] if len(sys.argv) == 5 else None
 
     # 1. Extract audio from the source MP4 file
     AUDIO_WAV_PATH = ORIG_MP4_PATH.rsplit('.', 1)[0] + "_audio.wav"

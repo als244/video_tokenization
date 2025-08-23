@@ -45,7 +45,6 @@ echo "--- [Step 2/3] Starting Audio Tokenization for '${VIDEO_NICKNAME}'... ---"
 (cd audio && python3 audio_tokenizer.py \
     "../${ORIG_VIDEO_FILEPATH}" \
     "../${OUTPUT_TOKENS_DIR}/${VIDEO_NICKNAME}_visual.npy" \
-    "${TEMPORAL_COMPRESSION_FACTOR}" \
     "../${OUTPUT_TOKENS_DIR}/${VIDEO_NICKNAME}_audio" \
     "../${RECONSTRUCTED_DIR}/${VIDEO_NICKNAME}_reconstructed_audio.wav")
 echo "--- [Step 2/3] Audio Tokenization Complete. ---"
